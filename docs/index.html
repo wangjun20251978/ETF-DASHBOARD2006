@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="description" content="ETF三因子轮动看板 - 动量M+相对低位V+资金流F - 每日自动更新">
+<title>ETF三因子轮动看板 | 每日自动更新</title>
+<style>
+:root{--bg:#0d1117;--card:#161b22;--bd:#30363d;--t:#c9d1d9;--td:#8b949e;--g:#3fb950;--r:#f85149;--y:#d29922;--b:#58a6ff;--tt:#e3b341;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--t);padding:20px;}
+.hd{text-align:center;margin-bottom:24px;}
+.hd h1{font-size:30px;color:var(--b);margin-bottom:8px;}
+.hd .sub{color:var(--td);font-size:14px;}
+.hd .dt{color:var(--g);font-size:16px;margin-top:4px;}
+.hd .auto{color:var(--y);font-size:12px;margin-top:4px;}
+.lg{display:flex;gap:24px;justify-content:center;margin-bottom:16px;font-size:12px;color:var(--td);flex-wrap:wrap;}
+.pc{display:flex;gap:16px;margin-bottom:24px;flex-wrap:wrap;justify-content:center;}
+.pcard{background:var(--card);border:2px solid var(--g);border-radius:12px;padding:16px 24px;min-width:360px;text-align:center;}
+.prank{color:var(--y);font-size:14px;font-weight:bold;margin-bottom:4px;}
+.pname{font-size:22px;font-weight:bold;margin-bottom:8px;}
+.pcode{font-size:14px;color:var(--td);}
+.pdetail{font-size:13px;color:var(--td);margin-bottom:8px;}
+.pw{color:var(--g);font-size:16px;font-weight:bold;margin-bottom:4px;}
+.pr{font-size:12px;color:var(--td);}
+.fc-m{color:var(--b);}.fc-v{color:var(--g);}.fc-f{color:var(--y);}.fc-t{color:var(--tt);}
+.empty{background:var(--card);border:2px solid var(--y);border-radius:12px;padding:20px 40px;font-size:18px;color:var(--y);}
+table{width:100%;border-collapse:collapse;background:var(--card);border-radius:8px;overflow:hidden;font-size:13px;margin-bottom:24px;}
+th{background:#21262d;color:var(--td);padding:10px 8px;text-align:center;font-weight:600;border-bottom:2px solid var(--bd);white-space:nowrap;}
+td{padding:8px;text-align:center;border-bottom:1px solid var(--bd);}
+tr.hl{background:rgba(63,185,80,0.1);}
+tr.hl td{border-color:rgba(63,185,80,0.3);}
+.code{color:var(--b);font-family:monospace;}.name{font-weight:600;}
+.pos{color:var(--g);}.neg{color:var(--r);}.total{color:var(--tt);font-weight:bold;font-size:15px;}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;}
+.pass{background:rgba(63,185,80,0.2);color:var(--g);}
+.fail{background:rgba(248,81,73,0.15);color:var(--r);}
+.warn{background:rgba(210,153,34,0.2);color:var(--y);}
+.ft{text-align:center;margin-top:24px;color:var(--td);font-size:12px;}
+.tip{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:12px 16px;margin:16px 0;font-size:13px;color:var(--td);line-height:1.8;}
+.tip b{color:var(--y);}
+.hist-title{color:var(--b);font-size:18px;font-weight:bold;margin:24px 0 12px 0;text-align:center;}
+.hist-table{font-size:12px;}
+@media(max-width:768px){table{font-size:11px;}th,td{padding:6px 4px;}.lg{gap:8px;}}
+</style></head><body>
+<div class="hd"><h1>📊 ETF三因子轮动看板</h1>
+<div class="sub">动量M(40%) + 相对低位V(30%) + 资金流F(30%) | 21只主流ETF全覆盖</div>
+<div class="dt">📅 2026-08-01 19:11</div>
+<div class="auto">⚡ 每个交易日19:00自动更新 | 数据源: 新浪财经(实时)</div></div>
+<div class="lg">
+<span>🟦 M=近10日×60%+近20日×40%</span>
+<span>🟩 V=60日价格分位(越低分越高)</span>
+<span>🟨 F=5日均量/20日均量×50</span>
+</div>
+<div class="pc"><div class="pcard">
+  <div class="prank">🏆 第1名</div>
+  <div class="pname">旅游 <span class="pcode">(sz159766)</span></div>
+  <div class="pdetail">
+    <span>现价: <b>0.579</b></span> |
+    <span class="fc-m">M: 5.78</span> |
+    <span class="fc-v">V: 61.8</span> |
+    <span class="fc-f">F: 56.7</span> |
+    <span>综合: <b class="fc-t">37.85</b></span>
+  </div>
+  <div class="pw">💰 建议仓位: 50%</div>
+  <div class="pr">✅ 三重风控通过 | 日涨跌: +1.22%</div>
+</div>
+<div class="pcard">
+  <div class="prank">🏆 第2名</div>
+  <div class="pname">有色金属 <span class="pcode">(sz159981)</span></div>
+  <div class="pdetail">
+    <span>现价: <b>1.485</b></span> |
+    <span class="fc-m">M: 3.01</span> |
+    <span class="fc-v">V: 63.3</span> |
+    <span class="fc-f">F: 40.5</span> |
+    <span>综合: <b class="fc-t">32.32</b></span>
+  </div>
+  <div class="pw">💰 建议仓位: 50%</div>
+  <div class="pr">✅ 三重风控通过 | 日涨跌: -1.13%</div>
+</div></div>
+<table><thead><tr>
+<th>#</th><th>代码</th><th>名称</th><th>现价</th><th>日涨幅</th><th>10日收益</th>
+<th>M得分</th><th>V分位</th><th>V得分</th><th>F比率</th><th>F得分</th><th>综合</th><th>风控</th>
+</tr></thead><tbody><tr>
+  <td>1</td><td class="code">sz159915</td><td class="name">创业板</td>
+  <td>3.368</td><td class="pos">+3.00%</td>
+  <td class="neg">-2.74%</td><td>-8.27</td>
+  <td>8.7%</td><td>91.3</td>
+  <td>1.36</td><td>68.0</td>
+  <td class="total">44.49</td><td><span class="badge fail">❌未通过</span></td>
+</tr>
+<tr>
+  <td>2</td><td class="code">sh510500</td><td class="name">中证500</td>
+  <td>7.500</td><td class="pos">+2.24%</td>
+  <td class="neg">-0.07%</td><td>-6.34</td>
+  <td>8.8%</td><td>91.2</td>
+  <td>1.20</td><td>59.9</td>
+  <td class="total">42.78</td><td><span class="badge fail">❌未通过</span></td>
+</tr>
+<tr>
+  <td>3</td><td class="code">sh518880</td><td class="name">黄金ETF</td>
+  <td>8.433</td><td class="pos">+0.87%</td>
+  <td class="pos">+1.47%</td><td>-0.22</td>
+  <td>10.1%</td><td>89.9</td>
+  <td>0.99</td><td>49.4</td>
+  <td class="total">41.72</td><td><span class="badge fail">❌未通过</span></td>
+</tr>
+<tr>
+  <td>4</td><td class="code">sh512100</td><td class="name">中证1000</td>
+  <td>2.864</td><td class="pos">+2.36%</td>
+  <td class="neg">-1.51%</td><td>-8.06</td>
+  <td>8.2%</td><td>91.8</td>
+  <td>1.14</td><td>56.9</td>
+  <td class="total">41.37</td><td><span class="badge fail">❌未通过</span></td>
+</tr>
+<tr>
+  <td>5</td><td class="code">sh588000</td><td class="name">科创50</td>
+  <td>1.728</td><td class="pos">+3.54%</td>
+  <td class="neg">-4.37%</td><td>-9.74</td>
+  <td>8.7%</td><td>91.3</td>
+  <td>1.18</td><td>58.8</td>
+  <td class="total">41.13</td><td><span class="badge fail">❌未通过</span></td>
+</tr>
+<tr>
+  <td>6</td><td class="code">sh516160</td><td class="name">新能源</td>
+  <td>2.436</td><td class="pos">+0.87%</td>
+  <td class="pos">+3.66%</td><td>-3.66</td>
+  <td>12.1%</td><td>87.9</td>
+  <td>1.05</td><td>52.4</td>
+  <td class="total">40.64</td><td><span class="badge fail">❌未通过</span></td>
+</tr>
+<tr>
+  <td>7</td><td class="code">sh510300</td><td class="name">沪深300</td>
+  <td>4.653</td><td class="pos">+1.04%</td>
+  <td class="pos">+1.39%</td><td>-0.99</td>
+  <td>12.7%</td><td>87.3</td>
+  <td>0.98</td><td>48.9</td>
+  <td class="total">40.45</td><td><span class="badge fail">❌未通过</span></td>
+</tr>
+<tr>
+  <td>8</td><td class="code">sh512480</td><td class="name">半导体</td>
+  <td>0.992</td><td class="pos">+3.55%</td>
+  <td class="neg">-7.29%</td><td>-14.56</td>
+  <td>1.7%</td><td>98.3</td>
+  <td>1.10</td><td>54.8</td>
+  <td class="total">40.10</td><td><span class="badge fail">❌未通过</span></td>
+</tr>
+<tr>
+  <td>9</td><td class="code">sh512660</td><td class="name">军工</td>
+  <td>1.093</td><td class="pos">+1.86%</td>
+  <td class="pos">+2.92%</td><td>-4.64</td>
+  <td>8.8%</td><td>91.2</td>
+  <td>0.94</td><td>46.9</td>
+  <td class="total">39.58</td><td><span class="badge fail">❌未通过</span></td>
+</tr>
+<tr class="hl">
+  <td>10</td><td class="code">sz159766</td><td class="name">旅游</td>
+  <td>0.579</td><td class="pos">+1.22%</td>
+  <td class="pos">+6.63%</td><td>5.78</td>
+  <td>38.2%</td><td>61.8</td>
+  <td>1.13</td><td>56.7</td>
+  <td class="total">37.85</td><td><span class="badge pass">✅通过</span></td>
+</tr>
+<tr>
+  <td>11</td><td class="code">sh515050</td><td class="name">电信</td>
+  <td>0.920</td><td class="pos">+4.43%</td>
+  <td class="neg">-12.71%</td><td>-18.00</td>
+  <td>1.6%</td><td>98.4</td>
+  <td>0.98</td><td>49.2</td>
+  <td class="total">37.10</td><td><span class="badge fail">❌未通过</span></td>
+</tr>
+<tr>
+  <td>12</td><td class="code">sh513100</td><td class="name">纳指ETF</td>
+  <td>2.112</td><td class="pos">+3.48%</td>
+  <td class="pos">+0.24%</td><td>-0.87</td>
+  <td>21.9%</td><td>78.1</td>
+  <td>0.70</td><td>35.1</td>
+  <td class="total">33.60</td><td><span class="badge fail">❌未通过</span></td>
+</tr>
+<tr class="hl">
+  <td>13</td><td class="code">sz159981</td><td class="name">有色金属</td>
+  <td>1.485</td><td class="neg">-1.13%</td>
+  <td class="pos">+0.41%</td><td>3.01</td>
+  <td>36.7%</td><td>63.3</td>
+  <td>0.81</td><td>40.5</td>
+  <td class="total">32.32</td><td><span class="badge pass">✅通过</span></td>
+</tr>
+<tr>
+  <td>14</td><td class="code">sh513500</td><td class="name">标普500</td>
+  <td>2.509</td><td class="pos">+1.21%</td>
+  <td class="pos">+0.24%</td><td>0.24</td>
+  <td>39.9%</td><td>60.1</td>
+  <td>0.93</td><td>46.7</td>
+  <td class="total">32.14</td><td><span class="badge fail">❌未通过</span></td>
+</tr>
+<tr class="hl">
+  <td>15</td><td class="code">sz159928</td><td class="name">消费</td>
+  <td>0.697</td><td class="neg">-0.29%</td>
+  <td class="pos">+6.74%</td><td>8.44</td>
+  <td>70.7%</td><td>29.3</td>
+  <td>1.05</td><td>52.4</td>
+  <td class="total">27.88</td><td><span class="badge pass">✅通过</span></td>
+</tr>
+<tr class="hl">
+  <td>16</td><td class="code">sh513180</td><td class="name">恒生科技</td>
+  <td>0.609</td><td class="pos">+0.00%</td>
+  <td class="pos">+3.92%</td><td>5.09</td>
+  <td>60.4%</td><td>39.6</td>
+  <td>0.86</td><td>43.1</td>
+  <td class="total">26.85</td><td><span class="badge pass">✅通过</span></td>
+</tr>
+<tr class="hl">
+  <td>17</td><td class="code">sh512690</td><td class="name">白酒</td>
+  <td>0.453</td><td class="pos">+0.22%</td>
+  <td class="pos">+9.69%</td><td>11.57</td>
+  <td>75.3%</td><td>24.7</td>
+  <td>0.95</td><td>47.3</td>
+  <td class="total">26.25</td><td><span class="badge pass">✅通过</span></td>
+</tr>
+<tr class="hl">
+  <td>18</td><td class="code">sh512800</td><td class="name">银行</td>
+  <td>0.836</td><td class="neg">-0.48%</td>
+  <td class="pos">+5.96%</td><td>8.34</td>
+  <td>96.2%</td><td>3.8</td>
+  <td>1.07</td><td>53.4</td>
+  <td class="total">20.47</td><td><span class="badge pass">✅通过</span></td>
+</tr>
+<tr class="hl">
+  <td>19</td><td class="code">sz159920</td><td class="name">恒生ETF</td>
+  <td>1.522</td><td class="neg">-0.65%</td>
+  <td class="pos">+4.82%</td><td>7.01</td>
+  <td>85.0%</td><td>15.0</td>
+  <td>0.86</td><td>42.9</td>
+  <td class="total">20.16</td><td><span class="badge pass">✅通过</span></td>
+</tr>
+<tr class="hl">
+  <td>20</td><td class="code">sh512070</td><td class="name">证券</td>
+  <td>0.813</td><td class="neg">-0.37%</td>
+  <td class="pos">+3.17%</td><td>2.15</td>
+  <td>86.6%</td><td>13.4</td>
+  <td>0.74</td><td>36.9</td>
+  <td class="total">15.97</td><td><span class="badge pass">✅通过</span></td>
+</tr>
+<tr class="hl">
+  <td>21</td><td class="code">sh512010</td><td class="name">医药</td>
+  <td>0.377</td><td class="pos">+0.27%</td>
+  <td class="pos">+3.57%</td><td>3.69</td>
+  <td>96.6%</td><td>3.4</td>
+  <td>0.68</td><td>34.0</td>
+  <td class="total">12.70</td><td><span class="badge pass">✅通过</span></td>
+</tr>
+</tbody></table>
+
+<div class="hist-title">📋 历史推荐记录</div>
+<table class="hist-table"><thead><tr>
+<th>更新时间</th><th>推荐持仓</th><th>ETF总数</th><th>风控通过数</th>
+</tr></thead><tbody><tr>
+  <td>2026-08-01 19:11</td><td>旅游(37.8) | 有色金属(32.3)</td><td>21</td><td>9</td>
+</tr>
+<tr>
+  <td>2026-08-01 18:33</td><td>旅游(37.9) | 有色金属(32.3)</td><td>21</td><td>9</td>
+</tr></tbody></table>
+
+<div class="tip">
+📌 <b>使用说明：</b>每天19:00后查看最新看板 → 选综合得分前2名(各50%) → 单日跌超-5%止损 → 三重风控未通过则空仓<br>
+📌 <b>三重风控：</b>①价格站上20日均线 ②均线方向向上 ③3日跌幅不超过5%<br>
+📌 <b>与单因子动量区别：</b>增加V(低位逆向)和F(资金流)双重过滤，避免追高踩坑
+</div>
+<div class="ft">
+<p>⚡ 每个交易日19:00自动更新 | 数据源: 新浪财经(免费公开) | ⚠️ 仅供参考，投资有风险</p>
+<p>策略: 买入综合得分前2名(各50%) | 单日跌超-5%止损 | 三重风控验证</p>
+</div>
+</body></html>
