@@ -3,6 +3,7 @@
 """
 ETF三因子轮动看板生成器
 因子: M动量(40%) + V相对低位(30%) + F资金流(30%)
+大盘趋势择时: 强势满仓 / 中性半仓 / 弱势防御(自动缩放仓位)
 数据源: 新浪财经公开接口 (免费)
 输出: docs/index.html (看板) + docs/history.json (历史记录)
 
@@ -22,13 +23,20 @@ V_PERIOD        = 60        # 价格分位窗口(天)
 MA_PERIOD       = 20        # 均线周期
 F_SHORT         = 5         # 资金流短周期(均量)
 F_LONG          = 20        # 资金流长周期(均量)
-MAX_HOLD        = 2         # 持仓数量
-WEIGHT          = 50        # 每只建议仓位(%)
+MAX_HOLD        = 2         # 中性时持仓数量
+WEIGHT          = 50        # 每只建议仓位(%基准, 已弃用, 改用大盘择时)
 STOP_LOSS       = -5.0      # 3日跌幅止损线(%)
 W_M, W_V, W_F   = 0.4, 0.3, 0.3
 
-# ===================== ETF池 (21只主流) =====================
+# ===================== 大盘趋势择时(仓位管理) =====================
+MARKET_INDEX    = "sh000001"   # 大盘基准: 上证综指 (新浪代码)
+BULL_WEIGHT     = 100   # 强势时建议总仓位(%)
+NEUTRAL_WEIGHT  = 50    # 中性时建议总仓位(%)
+BEAR_WEIGHT     = 20    # 弱势时建议总仓位(%)
+
+# ===================== ETF池 (覆盖宽基/行业/海外/商品/债券) =====================
 ETFS = [
+    # —— 宽基 ——
     ("sz159915", "创业板"), ("sh510500", "中证500"), ("sh518880", "黄金ETF"),
     ("sh512100", "中证1000"), ("sh588000", "科创50"), ("sh516160", "新能源"),
     ("sh510300", "沪深300"), ("sh512480", "半导体"), ("sh512660", "军工"),
@@ -36,6 +44,22 @@ ETFS = [
     ("sz159981", "有色金属"), ("sh513500", "标普500"), ("sz159928", "消费"),
     ("sh513180", "恒生科技"), ("sh512690", "白酒"), ("sh512800", "银行"),
     ("sz159920", "恒生ETF"), ("sh512070", "证券"), ("sh512010", "医药"),
+    ("sh510050", "上证50"), ("sh563300", "中证2000"), ("sz159901", "深证100"),
+    ("sz159601", "MSCI中国A50"),
+    # —— 红利策略 ——
+    ("sh515080", "中证红利"), ("sh512890", "红利低波"),
+    # —— 周期/资源/制造 ——
+    ("sh515790", "光伏"), ("sh515220", "煤炭"), ("sh516150", "稀土"),
+    ("sh515210", "钢铁"), ("sz159870", "化工"), ("sz159825", "农业"),
+    ("sz159996", "家电"), ("sz159745", "建材"), ("sh516110", "汽车"),
+    ("sh516950", "基建"), ("sz159611", "电力"),
+    # —— 科技/传媒 ——
+    ("sh515980", "人工智能"), ("sh562500", "机器人"), ("sh515230", "软件"),
+    ("sh512980", "传媒"),
+    # —— 海外 ——
+    ("sh513520", "日经225"), ("sh513030", "德国DAX"), ("sh513080", "法国CAC"),
+    # —— 商品/债券 ——
+    ("sz159985", "豆粕"), ("sh511260", "十年国债"), ("sh511090", "三十年国债"),
 ]
 
 HEADERS = {
@@ -128,6 +152,36 @@ def compute(rows):
     }
 
 
+def fetch_market_trend():
+    """抓取大盘基准指数(上证综指), 判断趋势并给出建议总仓位。失败回退中性。"""
+    try:
+        rows = fetch_kline(MARKET_INDEX, datalen=70)
+        closes = [r["close"] for r in rows]
+        n = len(closes)
+        cur = closes[-1]
+        ma20 = sum(closes[-20:]) / 20.0
+        ma60 = sum(closes[-60:]) / 60.0 if n >= 60 else sum(closes) / n
+        mom20 = (cur / closes[-21] - 1) * 100 if n > 21 else 0.0
+        bull = ma20 > ma60          # 多头排列(中线向上)
+        above = cur > ma20          # 站上短期均线
+        # 趋势得分: 多头0.5 + 站上均线0.3 + 动量正0.2
+        score = (0.5 if bull else 0) + (0.3 if above else 0) + (0.2 if mom20 > 0 else 0)
+        if score >= 0.7 and mom20 > 0:
+            state, label, tw = "强势", "🟢 强势·看多", BULL_WEIGHT
+        elif (not bull) and (not above) and mom20 < 0:
+            state, label, tw = "弱势", "🔴 弱势·防御", BEAR_WEIGHT
+        else:
+            state, label, tw = "中性", "🟡 中性·震荡", NEUTRAL_WEIGHT
+        return {"state": state, "label": label, "total_weight": tw,
+                "close": cur, "ma20": ma20, "ma60": ma60,
+                "mom20": mom20, "score": score, "ok": True}
+    except Exception as e:
+        print("  [大盘] 抓取失败, 按中性处理: %s" % e)
+        return {"state": "中性", "label": "🟡 中性·震荡", "total_weight": NEUTRAL_WEIGHT,
+                "close": None, "ma20": None, "ma60": None, "mom20": None,
+                "score": None, "ok": False}
+
+
 def build_records(live=True):
     records = []
     for code, name in ETFS:
@@ -139,10 +193,14 @@ def build_records(live=True):
                 print("  [跳过] %s 抓取失败: %s" % (code, e))
                 continue
         else:
+            try:
+                demo_row = next(x for x in DEMO if x[0] == code)
+            except StopIteration:
+                continue  # 离线且无快照的新ETF则跳过
             d = dict(zip(
                 ["code", "name", "price", "day_chg", "ten_chg", "m",
                  "v_pct", "v_score", "f_ratio", "f_score", "total", "pass"],
-                next(x for x in DEMO if x[0] == code)))
+                demo_row))
             f = d
         f["code"] = code
         f["name"] = name
@@ -154,14 +212,28 @@ def sgn(x, suf="%"):
     return ("+" if x >= 0 else "") + ("%.2f" % x) + suf
 
 
-def render(records, now_str, live):
+def render(records, now_str, live, market=None):
+    # 大盘趋势默认中性
+    if market is None:
+        market = {"state": "中性", "label": "🟡 中性·震荡", "total_weight": NEUTRAL_WEIGHT,
+                  "close": None, "ma20": None, "ma60": None, "mom20": None, "ok": False}
+
     # 按综合得分降序
     ranked = sorted(records, key=lambda r: r["total"], reverse=True)
     for i, r in enumerate(ranked, 1):
         r["rank"] = i
-    # 推荐: 风控通过中综合前 MAX_HOLD
+
+    # 持仓数量随大盘状态调整
+    if market["state"] == "强势":
+        hold_n = min(3, MAX_HOLD + 1)
+    elif market["state"] == "弱势":
+        hold_n = 1
+    else:
+        hold_n = MAX_HOLD
     passers = [r for r in ranked if r["pass"]]
-    holds = passers[:MAX_HOLD]
+    holds = passers[:hold_n]
+    total_w = market["total_weight"]
+    per = (total_w / len(holds)) if holds else 0
 
     # 卡片
     if holds:
@@ -180,7 +252,7 @@ def render(records, now_str, live):
             '  <div class="pr">✅ 三重风控通过 | 日涨跌: %s</div>\n'
             '</div>' % (
                 i + 1, r["name"], r["code"], r["price"], r["m"], r["v_score"],
-                r["f_score"], r["total"], WEIGHT, sgn(r["day_chg"]))
+                r["f_score"], r["total"], round(per), sgn(r["day_chg"]))
             for i, r in enumerate(holds)
         )
     else:
@@ -217,19 +289,36 @@ def render(records, now_str, live):
     entry = {
         "time": now_str, "holds": hold_str,
         "total": len(ranked), "pass": len(passers),
+        "market": market["state"], "weight": total_w,
     }
     hist.append(entry)
     hist = hist[-30:]
     save_history(hist)
 
     hist_rows = "\n".join(
-        "<tr>\n  <td>%s</td><td>%s</td><td>%d</td><td>%d</td>\n</tr>" % (
-            h["time"], h["holds"], h["total"], h["pass"]) for h in reversed(hist[-10:])
+        "<tr>\n  <td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%s</td>\n</tr>" % (
+            h["time"], h["holds"], h["total"], h["pass"],
+            ("%s/%d%%" % (h.get("market", "—"), h.get("weight", 0))) if h.get("market") else "—")
+        for h in reversed(hist[-10:])
     )
+
+    # 大盘趋势展示块
+    mcls = {"强势": "bull", "中性": "neutral", "弱势": "bear"}.get(market["state"], "neutral")
+    def _fmt(x):
+        return ("%.2f" % x) if isinstance(x, (int, float)) else "—"
+    if market["mom20"] is None:
+        mom_s = "—"
+    else:
+        mom_s = ("+" if market["mom20"] >= 0 else "") + "%.2f" % market["mom20"]
+    market_html = (
+        '<div class="mkt %s">📈 大盘趋势: <b>%s</b> | 上证综指 <b>%s</b> | '
+        '20日线 %s | 60日线 %s | 20日动量 <b>%s%%</b> | 建议总仓位 <b>%d%%</b></div>' % (
+            mcls, market["label"], _fmt(market["close"]), _fmt(market["ma20"]),
+            _fmt(market["ma60"]), mom_s, market["total_weight"]))
 
     src = "新浪财经(实时)" if live else "新浪财经(离线快照)"
     html = TEMPLATE % (
-        now_str, src, cards, rows_html, hist_rows,
+        len(ranked), now_str, src, market_html, cards, rows_html, hist_rows,
     )
     return html, entry
 
@@ -237,7 +326,7 @@ def render(records, now_str, live):
 TEMPLATE = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<meta name="description" content="ETF三因子轮动看板 - 动量M+相对低位V+资金流F - 每日自动更新">
+<meta name="description" content="ETF三因子轮动看板 - 动量M+相对低位V+资金流F+大盘择时 - 每日自动更新">
 <title>ETF三因子轮动看板 | 每日自动更新</title>
 <style>
 :root{--bg:#0d1117;--card:#161b22;--bd:#30363d;--t:#c9d1d9;--td:#8b949e;--g:#3fb950;--r:#f85149;--y:#d29922;--b:#58a6ff;--tt:#e3b341;}
@@ -270,15 +359,20 @@ tr.hl td{border-color:rgba(63,185,80,0.3);}
 .pass{background:rgba(63,185,80,0.2);color:var(--g);}
 .fail{background:rgba(248,81,73,0.15);color:var(--r);}
 .warn{background:rgba(210,153,34,0.2);color:var(--y);}
+.mkt{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;align-items:center;margin:8px auto 22px;padding:12px 20px;border-radius:10px;font-size:14px;max-width:920px;line-height:1.6;}
+.mkt.bull{background:rgba(63,185,80,0.12);border:1px solid var(--g);color:var(--g);}
+.mkt.neutral{background:rgba(210,153,34,0.12);border:1px solid var(--y);color:var(--y);}
+.mkt.bear{background:rgba(248,81,73,0.12);border:1px solid var(--r);color:var(--r);}
+.mkt b{color:var(--t);}
 .ft{text-align:center;margin-top:24px;color:var(--td);font-size:12px;}
 .tip{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:12px 16px;margin:16px 0;font-size:13px;color:var(--td);line-height:1.8;}
 .tip b{color:var(--y);}
 .hist-title{color:var(--b);font-size:18px;font-weight:bold;margin:24px 0 12px 0;text-align:center;}
 .hist-table{font-size:12px;}
-@media(max-width:768px){table{font-size:11px;}th,td{padding:6px 4px;}.lg{gap:8px;}}
+@media(max-width:768px){table{font-size:11px;}th,td{padding:6px 4px;}.lg{gap:8px;}.mkt{font-size:12px;}}
 </style></head><body>
 <div class="hd"><h1>📊 ETF三因子轮动看板</h1>
-<div class="sub">动量M(40%%) + 相对低位V(30%%) + 资金流F(30%%) | 21只主流ETF全覆盖</div>
+<div class="sub">动量M(40%%) + 相对低位V(30%%) + 资金流F(30%%) + 大盘择时 | %d只主流ETF全覆盖</div>
 <div class="dt">📅 %s</div>
 <div class="auto">⚡ 每个交易日19:00自动更新 | 数据源: %s</div></div>
 <div class="lg">
@@ -286,6 +380,7 @@ tr.hl td{border-color:rgba(63,185,80,0.3);}
 <span>🟩 V=60日价格分位(越低分越高)</span>
 <span>🟨 F=5日均量/20日均量×50</span>
 </div>
+%s
 <div class="pc">%s</div>
 <table><thead><tr>
 <th>#</th><th>代码</th><th>名称</th><th>现价</th><th>日涨幅</th><th>10日收益</th>
@@ -294,17 +389,18 @@ tr.hl td{border-color:rgba(63,185,80,0.3);}
 
 <div class="hist-title">📋 历史推荐记录</div>
 <table class="hist-table"><thead><tr>
-<th>更新时间</th><th>推荐持仓</th><th>ETF总数</th><th>风控通过数</th>
+<th>更新时间</th><th>推荐持仓</th><th>ETF总数</th><th>风控通过数</th><th>大盘/总仓</th>
 </tr></thead><tbody>%s</tbody></table>
 
 <div class="tip">
-📌 <b>使用说明：</b>每天19:00后查看最新看板 → 选综合得分前2名(各50%%) → 单日跌超-5%%止损 → 三重风控未通过则空仓<br>
+📌 <b>使用说明：</b>每天19:00后查看最新看板 → 先看顶部「大盘趋势」定总仓位 → 选综合得分前N名(仓位随大盘缩放) → 单日跌超-5%%止损 → 三重风控未通过则空仓<br>
+📌 <b>大盘择时：</b>强势🟢满仓(总仓100%%, 持有3只) / 中性🟡半仓(总仓50%%, 持有2只) / 弱势🔴防御(总仓20%%, 持有1只)。大盘弱时自动降仓，少买更稳。<br>
 📌 <b>三重风控：</b>①价格站上20日均线 ②均线方向向上 ③3日跌幅不超过5%%<br>
-📌 <b>与单因子动量区别：</b>增加V(低位逆向)和F(资金流)双重过滤，避免追高踩坑
+📌 <b>与单因子动量区别：</b>增加V(低位逆向)和F(资金流)双重过滤 + 大盘趋势仓位管理，避免追高踩坑
 </div>
 <div class="ft">
 <p>⚡ 每个交易日19:00自动更新 | 数据源: 新浪财经(免费公开) | ⚠️ 仅供参考，投资有风险</p>
-<p>策略: 买入综合得分前2名(各50%%) | 单日跌超-5%%止损 | 三重风控验证</p>
+<p>策略: 综合前N名 + 大盘趋势决定总仓位 | 单日跌超-5%%止损 | 三重风控验证</p>
 </div>
 </body></html>
 """
@@ -344,16 +440,19 @@ def main():
         records = build_records(live=False)
         live = False
 
-    print("[2/3] 生成看板 HTML ...")
-    html, entry = render(records, now_str, live)
+    print("[2/3] 抓取大盘趋势 ...")
+    market = fetch_market_trend()
+    print("  大盘状态: %s | 建议总仓位: %d%%" % (market["label"], market["total_weight"]))
+
+    print("[3/3] 生成看板 HTML ...")
+    html, entry = render(records, now_str, live, market)
     with open(os.path.join(DOCS, "index.html"), "w", encoding="utf-8") as f:
         f.write(html)
     print("  看板已写入 docs/index.html")
 
-    print("[3/3] 更新历史记录 ...")
-    print("  本次推荐: %s | 通过风控: %d/%d" % (
+    print("✅ 完成 (%s) | 大盘:%s 总仓%d%% | 推荐:%s | 风控通过:%d/%d" % (
+        "实时" if live else "离线快照", market["state"], market["total_weight"],
         entry["holds"], entry["pass"], entry["total"]))
-    print("✅ 完成 (%s)" % ("实时" if live else "离线快照"))
 
 
 if __name__ == "__main__":
