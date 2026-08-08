@@ -24,6 +24,12 @@ import datetime
 import urllib.request
 import urllib.error
 
+# 与网格看板(grid_trading.py)统一行情判定口径
+try:
+    from grid_trading import analyze as grid_analyze
+except ImportError:
+    grid_analyze = None
+
 # ===================== 参数区 (可改) =====================
 MOMENTUM_SHORT = 10        # 动量短周期(天)
 MOMENTUM_LONG  = 20        # 动量长周期(天)
@@ -115,7 +121,8 @@ def fetch_kline(symbol, datalen=160):
     with urllib.request.urlopen(req, timeout=15) as resp:
         raw = resp.read().decode("gbk")
     data = json.loads(raw)
-    rows = [{"day": d["day"], "close": float(d["close"]), "volume": float(d["volume"])}
+    rows = [{"day": d["day"], "open": float(d["open"]), "high": float(d["high"]),
+             "low": float(d["low"]), "close": float(d["close"]), "volume": float(d["volume"])}
             for d in data]
     rows.sort(key=lambda x: x["day"])
     return rows
@@ -302,8 +309,10 @@ def backtest(ranks, matrix, code):
     return {"best": best, "avg": avg, "win": win, "n": n[BACKTEST_HOLDS[0]]}
 
 
-def advice(fac, sig_days, bt, market):
-    """操作建议引擎: 左侧加仓 / 网格高抛低吸 / 持有 / 破位止损"""
+def advice(fac, sig_days, bt, market, rows=None):
+    """操作建议引擎: 左侧加仓 / 网格高抛低吸 / 持有 / 破位止损
+    网格判定与网格看板(grid_trading.analyze)统一: 标的判震荡/滞涨才给网格,
+    区间用60日箱体(非现价±5%), 止损=箱体下沿-5%, 两边看板信号一致"""
     if fac is None:
         return {"action": "—", "cls": "act-hold", "detail": "无数据",
                 "stop": None, "glo": None, "ghi": None}
@@ -313,8 +322,6 @@ def advice(fac, sig_days, bt, market):
     price = fac["price"]
     ma20 = fac.get("ma20")
     stop = round(ma20, 3) if ma20 else round(price * (1 + STOP_LOSS / 100), 3)
-    glo = round(price * (1 - GRID_PCT), 3)
-    ghi = round(price * (1 + GRID_PCT), 3)
 
     if not pas:
         if sig_days > 0:
@@ -328,10 +335,19 @@ def advice(fac, sig_days, bt, market):
         return {"action": "加仓", "cls": "act-add",
                 "detail": "相对低位(V%.0f%%) + 资金流入, 左侧分批加仓" % v,
                 "stop": stop, "glo": None, "ghi": None}
-    if 20 <= v <= 60 and market.get("state") in ("中性", "弱势"):
+    # 网格分支: 与网格看板同一判定函数, 同一箱体参数
+    ga = None
+    if rows and grid_analyze:
+        try:
+            ga = grid_analyze(rows)
+        except Exception:
+            ga = None
+    if ga and ga["cls"] in ("range", "stag") and ga["grid"]:
+        g = ga["grid"]
         return {"action": "网格", "cls": "act-grid",
-                "detail": "震荡区间 ¥%.3f~%.3f, 分3档高抛低吸" % (glo, ghi),
-                "stop": stop, "glo": glo, "ghi": ghi}
+                "detail": "%s箱体 %.3f~%.3f, %d格/步长%.2f%%, 破下沿-5%%止损"
+                          % (ga["state"], g["lower"], g["upper"], g["n"], g["step_pct"]),
+                "stop": g["stop"], "glo": g["lower"], "ghi": g["upper"]}
     return {"action": "持有", "cls": "act-hold",
             "detail": "趋势持有, 关注信号持续(%d天)" % sig_days,
             "stop": stop, "glo": None, "ghi": None}
@@ -653,7 +669,7 @@ def main():
         c = r["code"]
         r["sig_days"] = sig.get(c, 0)
         r["bt"] = bt.get(c)
-        r["adv"] = advice(r, r["sig_days"], r["bt"], market)
+        r["adv"] = advice(r, r["sig_days"], r["bt"], market, all_rows.get(c))
 
     print("[5/5] 生成看板 HTML ...")
     html, entry = render(records, now_str, live, market)
