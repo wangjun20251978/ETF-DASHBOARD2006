@@ -511,6 +511,8 @@ body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;backgroun
 .hd .sub{color:var(--td);font-size:14px;}
 .hd .dt{color:var(--g);font-size:16px;margin-top:4px;}
 .hd .auto{color:var(--y);font-size:12px;margin-top:4px;}
+.gridlink{display:inline-block;margin-top:10px;padding:8px 20px;background:rgba(88,166,255,.15);border:1px solid var(--b);border-radius:8px;color:var(--b);font-size:14px;font-weight:600;text-decoration:none;}
+.gridlink:hover{background:rgba(88,166,255,.32);}
 .lg{display:flex;gap:24px;justify-content:center;margin-bottom:16px;font-size:12px;color:var(--td);flex-wrap:wrap;}
 .pc{display:flex;gap:16px;margin-bottom:24px;flex-wrap:wrap;justify-content:center;}
 .pcard{background:var(--card);border:2px solid var(--g);border-radius:12px;padding:16px 24px;min-width:380px;text-align:center;}
@@ -559,7 +561,8 @@ tr.hl td{border-color:rgba(63,185,80,0.3);}
 <div class="hd"><h1>📊 ETF三因子轮动看板</h1>
 <div class="sub">动量M(40%%) + 相对低位V(30%%) + 资金流F(30%%) + 大盘择时 | %d只主流ETF全覆盖</div>
 <div class="dt">📅 %s</div>
-<div class="auto">⚡ 每个交易日19:00自动更新 | 数据源: %s</div></div>
+<div class="auto">⚡ 每个交易日19:00自动更新 | 数据源: %s</div>
+<a class="gridlink" href="grid.html">🧮 打开网格交易看板 →</a></div>
 <div class="lg">
 <span>🟦 M=近10日×60%%+近20日×40%%</span>
 <span>🟩 V=60日价格分位(越低分越高)</span>
