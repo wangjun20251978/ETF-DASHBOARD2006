@@ -680,11 +680,102 @@ def main():
         f.write(html)
     print("  看板已写入 docs/index.html")
 
+    # 收益/回测看板 (独立网页, 三因子页面"那一个"入口指向它)
+    bhtml = render_backtest(records, bt, now_str, live)
+    with open(os.path.join(DOCS, "backtest.html"), "w", encoding="utf-8") as f:
+        f.write(bhtml)
+    print("  回测看板已写入 docs/backtest.html")
+
     # 回测样本统计(供日志)
     bt_n = sum((bt[c]["n"] if bt.get(c) else 0) for c in codes)
     print("✅ 完成 (%s) | 大盘:%s 总仓%d%% | 推荐:%s | 风控通过:%d/%d | 回测信号样本:%d" % (
         "实时" if live else "离线快照", market["state"], market["total_weight"],
         entry["holds"], entry["pass"], entry["total"], bt_n))
+
+
+BACKTEST_TPL = """<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ETF 收益/回测看板</title>
+<style>
+:root{--bg:#0d1117;--card:#161b22;--bd:#30363d;--t:#c9d1d9;--td:#8b949e;--up:#f85149;--down:#3fb950;--b:#58a6ff;--y:#d29922;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--t);padding:20px;max-width:1100px;margin:0 auto;}
+.hd{text-align:center;margin-bottom:18px;}
+.hd h1{font-size:26px;color:var(--b);}
+.hd .sub{color:var(--td);font-size:13px;margin-top:6px;}
+.hd .dt{color:var(--y);font-size:14px;margin-top:4px;}
+.hd a{display:inline-block;margin:8px 6px 0;padding:8px 18px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px;}
+.gridlink{background:rgba(88,166,255,.15);border:1px solid var(--b);color:var(--b);}
+.tflink{background:rgba(210,153,34,.15);border:1px solid var(--y);color:var(--y);}
+.tip{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:12px 16px;margin:14px 0;font-size:12.5px;color:var(--td);line-height:1.8;}
+.tip b{color:var(--y);}
+table{width:100%%;border-collapse:collapse;background:var(--card);border-radius:8px;overflow:hidden;font-size:13px;}
+th{background:#21262d;color:var(--td);padding:9px 6px;text-align:center;font-weight:600;border-bottom:2px solid var(--bd);white-space:nowrap;}
+td{padding:8px 6px;text-align:center;border-bottom:1px solid var(--bd);}
+.code{color:var(--b);font-family:monospace;}.name{font-weight:600;}.best{color:var(--y);font-weight:bold;}
+.up{color:var(--up);font-weight:600;}.down{color:var(--down);font-weight:600;}
+.bars{display:flex;align-items:flex-end;gap:3px;height:50px;justify-content:center;}
+.bar{width:10px;border-radius:2px 2px 0 0;min-height:2px;}
+.ft{text-align:center;margin-top:18px;color:var(--td);font-size:12px;}
+@media(max-width:768px){table{font-size:10px;}th,td{padding:5px 2px;}}
+</style></head><body>
+<div class="hd"><h1>📈 ETF 收益/回测看板</h1>
+<div class="sub">三因子信号触发后，持有 1/3/5/10/20 天的平均收益与胜率（共 %s 只，样本=历史所有信号触发日）</div>
+<div class="dt">📅 %s ｜ 数据源: %s</div>
+<a class="tflink" href="index.html">📊 返回三因子看板</a>
+<a class="gridlink" href="grid.html">🧮 打开网格交易看板 →</a></div>
+<div class="tip">📌 <b>怎么看：</b>「最优持股」=回测中平均收益最高的持有天数；下方数字为各持有期<b>平均收益</b>（红涨绿跌，中国习惯），「最优胜率」为该持有期盈利样本占比。样本不足（无历史信号）的ETF不显示。本看板仅供研究，不构成投资建议。</div>
+<table><thead><tr>
+<th>#</th><th>代码</th><th>名称</th><th>最优持股</th>
+<th>1天</th><th>3天</th><th>5天</th><th>10天</th><th>20天</th>
+<th>最优胜率</th><th>样本</th><th>收益分布</th>
+</tr></thead><tbody>
+%s
+</tbody></table>
+<div class="ft"><p>⚡ 数据源: 新浪财经(免费公开) ｜ ⚠️ 历史回测不代表未来收益，投资有风险</p></div>
+</body></html>"""
+
+
+def render_backtest(records, bt, now_str, live):
+    """收益/回测看板: 信号触发后持有[1,3,5,10,20]天平均收益与胜率(红涨绿跌, 中国习惯)"""
+    rows = []
+    for r in records:
+        c = r["code"]
+        b = bt.get(c)
+        if not b or not b.get("n"):
+            continue
+        rows.append((r, b))
+    rows.sort(key=lambda x: x[1]["avg"][x[1]["best"]], reverse=True)
+
+    body = ""
+    for i, (r, b) in enumerate(rows, 1):
+        avg = b["avg"]; win = b["win"]; best = b["best"]
+        maxabs = max(abs(v) for v in avg.values()) or 1
+        bars = '<div class="bars">'
+        for k in BACKTEST_HOLDS:
+            v = avg.get(k, 0)
+            h = abs(v) / maxabs * 44 + 3
+            color = "var(--up)" if v >= 0 else "var(--down)"
+            bars += ('<div class="bar" title="%d天 %+.1f%%" style="height:%.0fpx;background:%s"></div>'
+                     % (k, v, h, color))
+        bars += '</div>'
+
+        def cell(k):
+            v = avg.get(k, 0)
+            cls = "up" if v >= 0 else "down"
+            return '<td class="%s">%+.1f%%</td>' % (cls, v)
+        body += (
+            "<tr>\n"
+            "  <td>%d</td><td class='code'>%s</td><td class='name'>%s</td>\n"
+            "  <td class='best'>%d天</td>\n%s%s%s%s%s\n"
+            "  <td>%.0f%%</td><td>%d</td><td>%s</td>\n</tr>\n" % (
+                i, r["code"], r["name"], best,
+                cell(1), cell(3), cell(5), cell(10), cell(20),
+                win.get(best, 0), b["n"], bars)
+        )
+
+    src = "新浪财经(实时)" if live else "新浪财经(离线快照)"
+    return BACKTEST_TPL % (now_str, src, len(rows), body)
 
 
 if __name__ == "__main__":
