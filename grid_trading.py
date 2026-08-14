@@ -37,7 +37,7 @@ AMP_MAX     = 0.15    # 20日振幅小于15%为窄幅
 GRID_STEP   = 0.025   # 网格目标步长 2.5%
 GRID_MIN_N  = 5       # 最少格数
 GRID_MAX_N  = 10      # 最多格数
-BASE_POS    = 40      # 建议底仓(%)
+BASE_POS    = 50      # 底仓(%), 长线不动吃趋势; 其余50%为浮动仓做网格
 STOP_BUF    = 0.05    # 止损缓冲: 跌破区间下沿5%清仓
 BREAK_BUF   = 0.01    # 突破上沿1%停止网格
 STAG_GAIN   = 0.15    # 60日涨幅>15%才有"高位"前提
@@ -73,7 +73,7 @@ MARKET_INDEX = "sh000001"
 
 
 # ===================== 数据抓取 =====================
-def fetch_kline(symbol, datalen=160):
+def fetch_kline(symbol, datalen=400):
     """新浪日K线, 返回升序 [{day,open,high,low,close,volume}]"""
     url = ("https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/"
            "CN_MarketData.getKLineData?symbol=%s&scale=240&ma=no&datalen=%d" % (symbol, datalen))
@@ -184,59 +184,101 @@ def percentile(sorted_vals, v):
 
 
 def backtest_grid(rows):
-    """网格回测: 前60日定区间, 后60日机械模拟(收盘价)。
-    规则: 跌穿格买价买一份, 涨破格卖价卖一份; 破止损线清仓; 破上沿停止网格转持有。
-    返回 {ret网格收益%, hold持有收益%, trades, sells, stopped, broke} 或 None"""
-    if len(rows) < 125:
+    """250日滚动箱体回测(改进版):
+    - 每20个交易日按当时前60日高低点重定箱体(过宽缩30日)
+    - 底仓50%长线持有吃趋势 + 浮动仓50%做正金字塔网格(越深的格份额越大)
+    - 收盘跌破箱体下沿-5%: 全部清仓(含底仓), 冷却至下个重定日再建仓
+    - 收盘突破上沿+1%: 浮动仓停止网格, 底仓继续持有
+    输出: ret总收益% / ann年化% / mdd最大回撤% / calmar卡玛 / hold同期死拿% /
+          trades成交 / sells套利 / stops止损次数 / breaks突破次数"""
+    if len(rows) < 330:
         return None
-    bt, pre = rows[-60:], rows[-120:-60]
-    hi = max(r["high"] for r in pre)
-    lo = min(r["low"] for r in pre)
-    if (hi - lo) / lo > BOX_WIDE:
-        hi = max(r["high"] for r in pre[-30:])
-        lo = min(r["low"] for r in pre[-30:])
-    width = (hi - lo) / lo
-    n = max(GRID_MIN_N, min(GRID_MAX_N, round(width / GRID_STEP)))
-    step = (hi - lo) / n
-    levels = [lo + step * i for i in range(n + 1)]
-    stop, brk = lo * (1 - STOP_BUF), hi * (1 + BREAK_BUF)
+    closes = [r["close"] for r in rows]
+    n_all = len(rows)
+    start = n_all - 250
+    TOTAL = 100.0   # 名义总资金
+    REBUILD = 20    # 箱体重定周期(交易日)
 
-    # 首日: 收盘所在格及以下各持有一份, 成本=各格买价
-    c0 = bt[0]["close"]
-    cell = max(0, min(n - 1, int((c0 - lo) / step)))
-    holding = [i <= cell for i in range(n)]
-    cash = 0.0
-    trades = sells = 0
-    stopped = broke = False
-    for r in bt[1:]:
-        c = r["close"]
-        if c < stop:                      # 止损: 全部清仓
-            cash += sum(holding) * c
-            holding = [False] * n
-            stopped = True
-            break
-        if c > brk and not broke:         # 突破: 停止网格, 余仓转趋势持有
-            broke = True
-        if not broke:
-            for i in range(n):
-                if c < levels[i] and not holding[i]:      # 跌穿买价→买
-                    holding[i] = True
-                    cash -= levels[i]
-                    trades += 1
-                elif c >= levels[i + 1] and holding[i]:   # 涨破卖价→卖
-                    holding[i] = False
-                    cash += levels[i + 1]
-                    trades += 1
-                    sells += 1
-    last = bt[-1]["close"]
-    final = cash + sum(holding) * last          # 现金 + 持仓市值
-    invested0 = sum(levels[i] for i in range(n) if i <= cell) or c0  # 初始持仓成本
-    total_cap = sum(levels[i] for i in range(n))  # 满格占用资金(收益率分母)
+    cash = TOTAL
+    base_hold = 0.0
+    cell_hold = {}   # {格号: 份额}
+    box = None
+    equity = []
+    trades = sells = stops = breaks = 0
+
+    for i in range(start, n_all):
+        c = closes[i]
+        if box is None or (i - start) % REBUILD == 0:
+            # —— 重定箱体日: 旧仓变现, 按新箱体重建(底仓+现价以下各格) ——
+            pre = rows[max(0, i - 60):i]
+            if len(pre) < 30:
+                continue
+            hi = max(r["high"] for r in pre)
+            lo = min(r["low"] for r in pre)
+            if (hi - lo) / lo > BOX_WIDE:
+                hi = max(r["high"] for r in pre[-30:])
+                lo = min(r["low"] for r in pre[-30:])
+            width = (hi - lo) / lo
+            n = max(GRID_MIN_N, min(GRID_MAX_N, round(width / GRID_STEP)))
+            step = (hi - lo) / n
+            levels = [lo + step * k for k in range(n + 1)]
+            w = [1 + (n - 1 - k) * 0.5 for k in range(n)]  # 正金字塔: 深格份额大
+            wsum = sum(w)
+            box = {"levels": levels, "n": n, "w": w, "wsum": wsum,
+                   "stop": lo * (1 - STOP_BUF), "brk": hi * (1 + BREAK_BUF),
+                   "broke": False}
+            cash += base_hold * c + sum(s * c for s in cell_hold.values())
+            base_hold = (TOTAL * 0.5) / c
+            cash -= TOTAL * 0.5
+            cell_hold = {}
+            for k in range(n):
+                if levels[k] < c:
+                    amt = TOTAL * 0.5 * w[k] / wsum
+                    if cash >= amt:
+                        cell_hold[k] = amt / levels[k]
+                        cash -= amt
+        elif c < box["stop"]:
+            # —— 止损: 全部清仓(含底仓), box=None 冷却至下个重定日 ——
+            cash += base_hold * c + sum(s * c for s in cell_hold.values())
+            base_hold = 0.0
+            cell_hold = {}
+            box = None
+            stops += 1
+        else:
+            if not box["broke"] and c > box["brk"]:
+                box["broke"] = True   # 浮动停网格, 底仓续持吃趋势
+                breaks += 1
+            if not box["broke"]:
+                lv, n = box["levels"], box["n"]
+                for k in range(n):
+                    if c < lv[k] and k not in cell_hold:            # 跌穿买价→买
+                        amt = TOTAL * 0.5 * box["w"][k] / box["wsum"]
+                        if cash >= amt:
+                            cell_hold[k] = amt / lv[k]
+                            cash -= amt
+                            trades += 1
+                    elif c >= lv[k + 1] and k in cell_hold:         # 涨破卖价→卖
+                        cash += cell_hold[k] * lv[k + 1]
+                        del cell_hold[k]
+                        trades += 1
+                        sells += 1
+        equity.append(cash + base_hold * c + sum(s * c for s in cell_hold.values()))
+
+    if not equity:
+        return None
+    ret = equity[-1] / TOTAL - 1
+    hold_ret = closes[-1] / closes[start] - 1
+    peak, mdd = equity[0], 0.0
+    for e in equity:
+        peak = max(peak, e)
+        mdd = max(mdd, (peak - e) / peak)
+    ann = ret  # 250交易日≈1年
     return {
-        "ret": round((final - invested0) / total_cap * 100, 2),
-        "hold": round((last / c0 - 1) * 100, 2),
-        "trades": trades, "sells": sells,
-        "stopped": stopped, "broke": broke,
+        "ret": round(ret * 100, 2), "ann": round(ann * 100, 2),
+        "mdd": round(mdd * 100, 2),
+        "calmar": round(ann / mdd, 2) if mdd > 0.001 else None,
+        "hold": round(hold_ret * 100, 2),
+        "trades": trades, "sells": sells, "stops": stops, "breaks": breaks,
     }
 
 
@@ -334,13 +376,27 @@ def analyze(rows):
         levels = [round(lo60 + step * i, 4) for i in range(n + 1)]
         pos = (price - lo60) / (hi60 - lo60) if hi60 > lo60 else 0.5
         cur_cell = max(0, min(n - 1, int((price - lo60) / step))) if step else 0
+        # 正金字塔份额: 越深的格买得越多 (格1最深=1+(n-1)*0.5, 最浅=1)
+        pyr = [round(1 + (n - 1 - k) * 0.5, 1) for k in range(n)]
+        # 开仓过滤: 120日分位判高低位 + 价格在箱体下部才开仓
+        v120 = percentile(sorted(closes[-120:]), price)
+        if v120 >= 50:
+            entry = "⚠ 高位箱体(120日分位%.0f%%), 不建议新开网格" % v120
+            entry_ok = False
+        elif pos >= 0.5:
+            entry = "⏳ 价格在箱体中上部, 等回调到下部再开"
+            entry_ok = False
+        else:
+            entry = "✅ 低位箱体+价格在下部, 可开仓"
+            entry_ok = True
         grid = {
             "upper": round(hi60, 4), "lower": round(lo60, 4),
             "n": n, "step_pct": round(step / lo60 * 100, 2),
-            "levels": levels, "cur_cell": cur_cell,
+            "levels": levels, "cur_cell": cur_cell, "pyr": pyr,
             "stop": round(lo60 * (1 - STOP_BUF), 4),
             "brk": round(hi60 * (1 + BREAK_BUF), 4),
             "zone": "下部(可买区)" if pos < 0.33 else ("上部(可卖区)" if pos > 0.66 else "中部(持有)"),
+            "entry": entry, "entry_ok": entry_ok, "v120": round(v120, 0),
         }
 
     # ---- 网格回测(仅震荡/滞涨) ----
@@ -379,34 +435,42 @@ def grid_card(name, code, d):
         buy, sell = g["levels"][i], g["levels"][i + 1]
         cur = ' class="cur"' if i == g["cur_cell"] else ""
         rows_html += ("<tr%s><td>第%d格</td><td>%.3f</td><td>→</td><td>%.3f</td>"
-                      "<td>买入</td><td>卖出</td></tr>\n" % (cur, i + 1, buy, sell))
+                      "<td>买%s份</td><td>卖%s份</td></tr>\n"
+                      % (cur, i + 1, buy, sell, g["pyr"][i], g["pyr"][i]))
     bt_html = ""
     if bt:
-        flag = ""
-        if bt["stopped"]:
-            flag = ' · <b style="color:#f85149">⚠ 曾止损出场</b>'
-        elif bt["broke"]:
-            flag = ' · <b style="color:#3fb950">↗ 曾突破转趋势</b>'
-        bt_html = ('<div class="bline">📊 近60日回测(区间按60日前定): 网格 <b>%s</b> vs 持有 %s · 成交%d次/套利%d次%s</div>'
-                   % (color_pct(bt["ret"]), color_pct(bt["hold"]), bt["trades"], bt["sells"], flag))
+        calmar = ("卡玛%.2f" % bt["calmar"]) if bt.get("calmar") else "卡玛—"
+        ev = []
+        if bt["stops"]:
+            ev.append('<b style="color:#f85149">止损%d次</b>' % bt["stops"])
+        if bt["breaks"]:
+            ev.append('<b style="color:#3fb950">突破%d次</b>' % bt["breaks"])
+        ev_s = (" · " + "/".join(ev)) if ev else ""
+        bt_html = ('<div class="bline">📊 250日回测(滚动箱体+金字塔+底仓): 网格 <b>%s</b> '
+                   '(年化%s, 最大回撤%.1f%%, %s) vs 死拿 %s · 套利%d次%s</div>'
+                   % (color_pct(bt["ret"]), fmt_pct(bt["ann"]), bt["mdd"], calmar,
+                      color_pct(bt["hold"]), bt["sells"], ev_s))
+    entry_cls = "eok" if g["entry_ok"] else "eno"
     return """
 <div class="gcard">
   <div class="ghead">%s <span class="code">%s</span> %s
-    <span class="gp">现价 %.3f · %s</span></div>
+    <span class="gp">现价 %.3f · %s · 120日分位 %.0f%%</span></div>
   <div class="gmeta">
     <span>区间 <b>%.3f ~ %.3f</b></span>
     <span>分 <b>%d</b> 格 · 每格约 <b>%.2f%%</b></span>
-    <span>底仓 <b>%d%%</b></span>
-    <span class="stop">止损 <b>%.3f</b>(破区间-5%%清仓)</span>
-    <span class="brk">突破 <b>%.3f</b>(放量站上停网格转趋势)</span>
+    <span>结构 <b>底仓%d%% + 浮动%d%%金字塔</b></span>
+    <span class="stop">止损 <b>%.3f</b>(破下沿-5%%清仓)</span>
+    <span class="brk">突破 <b>%.3f</b>(停浮动仓, 底仓续持)</span>
   </div>
+  <div class="entry %s">%s</div>
   %s
-  <table class="gt"><tr><th>格</th><th>买价</th><th></th><th>卖价</th><th>到买价</th><th>到卖价</th></tr>
+  <table class="gt"><tr><th>格</th><th>买价</th><th></th><th>卖价</th><th>到买价买</th><th>到卖价卖</th></tr>
   %s</table>
-  <div class="gnote">当前处于 <b>%s</b>(第%d格)。机械执行: 跌穿买价买一份, 涨破卖价卖一份, 不预测不感情。</div>
-</div>""" % (name, code, state_badge(d["cls"], d["state"]), d["price"], g["zone"],
-            g["lower"], g["upper"], g["n"], g["step_pct"], BASE_POS,
-            g["stop"], g["brk"], bt_html, rows_html, g["zone"], g["cur_cell"] + 1)
+  <div class="gnote">当前处于 <b>%s</b>(第%d格)。底仓%d%%长线不动; 浮动仓: 跌穿买价按份额买、涨破卖价按份额卖, 越深的格买得越多。</div>
+</div>""" % (name, code, state_badge(d["cls"], d["state"]), d["price"], g["zone"], g["v120"],
+            g["lower"], g["upper"], g["n"], g["step_pct"], BASE_POS, 100 - BASE_POS,
+            g["stop"], g["brk"], entry_cls, g["entry"], bt_html, rows_html,
+            g["zone"], g["cur_cell"] + 1, BASE_POS)
 
 
 def render(items, now_str, live, mkt):
@@ -434,12 +498,12 @@ def render(items, now_str, live, mkt):
             op = '<span class="opb wait">观望</span>'
         if d.get("bt"):
             b = d["bt"]
-            bt_cell = ("%s<br><span class='btsub'>持有%s·套利%d次</span>"
-                       % (color_pct(b["ret"]), fmt_pct(b["hold"]), b["sells"]))
-            if b["stopped"]:
-                bt_cell += "<br><span class='btwarn'>曾止损</span>"
-            elif b["broke"]:
-                bt_cell += "<br><span class='btbrk'>曾突破</span>"
+            bt_cell = ("%s<br><span class='btsub'>死拿%s·回撤%.1f%%·套利%d</span>"
+                       % (color_pct(b["ret"]), fmt_pct(b["hold"]), b["mdd"], b["sells"]))
+            if b["stops"]:
+                bt_cell += "<br><span class='btwarn'>止损%d次</span>" % b["stops"]
+            if b["breaks"]:
+                bt_cell += "<br><span class='btbrk'>突破%d次</span>" % b["breaks"]
         else:
             bt_cell = "—"
         body_rows += ("<tr><td>%s</td><td class='nm'>%s</td><td>%.3f</td>"
@@ -514,6 +578,9 @@ h1{font-size:22px;margin-bottom:4px;}
 .btwarn{font-size:11px;color:var(--r);font-weight:600;}
 .btbrk{font-size:11px;color:var(--g);font-weight:600;}
 .bline{background:rgba(88,166,255,.07);border:1px solid var(--bd);border-radius:8px;padding:8px 14px;font-size:13px;margin-bottom:12px;}
+.entry{padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:12px;}
+.entry.eok{background:rgba(63,185,80,.12);border:1px solid var(--g);color:var(--g);}
+.entry.eno{background:rgba(210,153,34,.10);border:1px solid var(--y);color:var(--y);}
 table{width:100%%;border-collapse:collapse;background:var(--card);border-radius:8px;overflow:hidden;font-size:13px;margin-bottom:24px;}
 th{background:#21262d;color:var(--td);padding:10px 6px;text-align:center;font-weight:600;border-bottom:2px solid var(--bd);white-space:nowrap;}
 td{padding:9px 6px;text-align:center;border-bottom:1px solid var(--bd);white-space:nowrap;}
@@ -550,12 +617,13 @@ a{color:var(--b);text-decoration:none;}
 </div>
 <div class="tip"><b>使用规则:</b>
 ① <b>网格第一前提</b>——只做「震荡市」和「高位滞涨」标的, 趋势市(ADX≥25)网格必亏, 坚决不碰;
-② 每个标的: 底仓%(base)s%% + 每格等份资金, 跌穿买价买一份、涨破卖价卖一份;
-③ <b>止损铁律</b>: 收盘跌破区间下沿5%% = 震荡判断失效, 清仓认赔不补仓;
-④ <b>突破处理</b>: 放量涨破区间上沿 = 停止网格, 余仓转趋势持有(看三因子看板);
-⑤ 判断依据: ADX / 均线斜率 / 20日振幅 / 布林带宽分位 / RSI / 均线缠绕 六指标共振。</div>
+② <b>结构</b>: 底仓%(base)s%%长线不动(吃趋势, 突破不卖飞) + 浮动仓正金字塔网格(越深的格买得越多, 摊低成本);
+③ <b>开仓过滤</b>: 只做120日低分位箱体, 且价格回到箱体下部才开仓(卡片有✅/⏳/⚠标记);
+④ <b>止损铁律</b>: 收盘跌破区间下沿5%% = 箱体失效, 全部清仓(含底仓), 等下一个箱体再开;
+⑤ <b>突破处理</b>: 涨破区间上沿 = 浮动仓停网格, 底仓继续持有吃趋势;
+⑥ 回测口径: 250日滚动箱体(每20日重定区间), 看总收益/最大回撤/卡玛, 别只看一两个月。</div>
 <table>
-<tr><th>代码</th><th>名称</th><th>现价</th><th>20日动量</th><th>行情状态</th><th>ADX</th><th>震荡分</th><th>滞涨分</th><th>网格区间</th><th>格数/步长</th><th>止损价</th><th>60日回测</th><th>操作</th><th>当前位置</th></tr>
+<tr><th>代码</th><th>名称</th><th>现价</th><th>20日动量</th><th>行情状态</th><th>ADX</th><th>震荡分</th><th>滞涨分</th><th>网格区间</th><th>格数/步长</th><th>止损价</th><th>250日回测</th><th>操作</th><th>当前位置</th></tr>
 %(rows)s
 </table>
 <h2>📐 网格明细 (%(n_grid)d 只可操作标的)</h2>
