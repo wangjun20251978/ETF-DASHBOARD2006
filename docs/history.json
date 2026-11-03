@@ -1,13 +1,5 @@
 [
   {
-    "time": "2026-10-28 22:01",
-    "holds": "十年国债ETF(26.3)",
-    "total": 48,
-    "pass": 4,
-    "market": "弱势",
-    "weight": 20
-  },
-  {
     "time": "2026-10-29 00:34",
     "holds": "十年国债ETF(26.3)",
     "total": 48,
@@ -236,6 +228,14 @@
     "holds": "旅游ETF(34.8)",
     "total": 48,
     "pass": 8,
+    "market": "弱势",
+    "weight": 20
+  },
+  {
+    "time": "2026-11-03 23:07",
+    "holds": "汽车ETF(38.0)",
+    "total": 48,
+    "pass": 13,
     "market": "弱势",
     "weight": 20
   }
