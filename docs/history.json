@@ -1,13 +1,5 @@
 [
   {
-    "time": "2026-10-31 21:39",
-    "holds": "医药ETF(37.3)",
-    "total": 48,
-    "pass": 7,
-    "market": "弱势",
-    "weight": 20
-  },
-  {
     "time": "2026-10-31 23:42",
     "holds": "医药ETF(37.3)",
     "total": 48,
@@ -236,6 +228,14 @@
     "holds": "法国ETF(42.5)",
     "total": 45,
     "pass": 17,
+    "market": "弱势",
+    "weight": 20
+  },
+  {
+    "time": "2026-11-06 23:03",
+    "holds": "德国ETF(44.1)",
+    "total": 48,
+    "pass": 13,
     "market": "弱势",
     "weight": 20
   }
