@@ -1,13 +1,5 @@
 [
   {
-    "time": "2026-11-20 17:52",
-    "holds": "上证50ETF(48.1)",
-    "total": 48,
-    "pass": 8,
-    "market": "弱势",
-    "weight": 20
-  },
-  {
     "time": "2026-11-21 00:09",
     "holds": "上证50ETF(48.1)",
     "total": 48,
@@ -236,6 +228,14 @@
     "holds": "家电ETF(33.7)",
     "total": 44,
     "pass": 6,
+    "market": "弱势",
+    "weight": 20
+  },
+  {
+    "time": "2026-11-25 17:54",
+    "holds": "红利低波ETF(17.8)",
+    "total": 48,
+    "pass": 3,
     "market": "弱势",
     "weight": 20
   }
